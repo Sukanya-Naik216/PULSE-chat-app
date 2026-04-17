@@ -2,11 +2,16 @@ import React, { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import JoinScreen from './components/JoinScreen';
 import ChatScreen from './components/ChatScreen';
+import LoginScreen from './components/LoginScreen';
+import SignupScreen from './components/SignupScreen';
 
 const SOCKET_URL = 'http://localhost:5000';
 
 export default function App() {
-  const [screen, setScreen] = useState('join'); // 'join' | 'chat'
+  // Check if user is already logged in, skip to join screen if so
+  const initialScreen = localStorage.getItem('chat_token') ? 'join' : 'login';
+
+  const [screen, setScreen] = useState(initialScreen); // 'login' | 'signup' | 'join' | 'chat'
   const [username, setUsername] = useState('');
   const [room, setRoom] = useState('');
   const [messages, setMessages] = useState([]);
@@ -15,36 +20,25 @@ export default function App() {
   const [typingUsers, setTypingUsers] = useState([]);
   const socketRef = useRef(null);
 
-  useEffect(() => {
-    socketRef.current = io(SOCKET_URL);
-    const socket = socketRef.current;
-
-    socket.on('receive_message', (msg) => {
-      setMessages((prev) => [...prev, msg]);
-    });
-
-    socket.on('message_history', (history) => {
-      setMessages(history);
-    });
-
-    socket.on('online_users', (users) => {
-      setOnlineUsers(users);
-    });
-
+  const setupSocketListeners = (socket) => {
+    socket.on('receive_message', (msg) => setMessages((prev) => [...prev, msg]));
+    socket.on('message_history', (history) => setMessages(history));
+    socket.on('online_users', (users) => setOnlineUsers(users));
     socket.on('notification', (notif) => {
       setNotifications((prev) => [...prev, { ...notif, id: Date.now() }]);
-      setTimeout(() => {
-        setNotifications((prev) => prev.slice(1));
-      }, 3500);
+      setTimeout(() => setNotifications((prev) => prev.slice(1)), 3500);
     });
-
     socket.on('user_typing', ({ username, isTyping }) => {
       setTypingUsers((prev) =>
         isTyping ? [...new Set([...prev, username])] : prev.filter((u) => u !== username)
       );
     });
+  };
 
-    return () => socket.disconnect();
+  useEffect(() => {
+    socketRef.current = io(SOCKET_URL);
+    setupSocketListeners(socketRef.current);
+    return () => socketRef.current.disconnect();
   }, []);
 
   const handleJoin = (name, roomName) => {
@@ -69,19 +63,14 @@ export default function App() {
     setOnlineUsers([]);
     setTypingUsers([]);
     setScreen('join');
+    setupSocketListeners(socketRef.current);
+  };
 
-    socketRef.current.on('receive_message', (msg) => setMessages((prev) => [...prev, msg]));
-    socketRef.current.on('message_history', (history) => setMessages(history));
-    socketRef.current.on('online_users', (users) => setOnlineUsers(users));
-    socketRef.current.on('notification', (notif) => {
-      setNotifications((prev) => [...prev, { ...notif, id: Date.now() }]);
-      setTimeout(() => setNotifications((prev) => prev.slice(1)), 3500);
-    });
-    socketRef.current.on('user_typing', ({ username, isTyping }) => {
-      setTypingUsers((prev) =>
-        isTyping ? [...new Set([...prev, username])] : prev.filter((u) => u !== username)
-      );
-    });
+  const handleLogout = () => {
+    localStorage.removeItem('chat_token');
+    localStorage.removeItem('chat_logged_in');
+    localStorage.removeItem('chat_username');
+    setScreen('login');
   };
 
   return (
@@ -93,12 +82,8 @@ export default function App() {
             background: n.type === 'join' ? '#14532d' : '#450a0a',
             border: `1px solid ${n.type === 'join' ? '#22c55e40' : '#ef444440'}`,
             color: n.type === 'join' ? '#86efac' : '#fca5a5',
-            padding: '10px 16px',
-            borderRadius: 10,
-            fontSize: 13,
-            fontWeight: 500,
-            animation: 'slideIn 0.3s ease',
-            boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+            padding: '10px 16px', borderRadius: 10, fontSize: 13, fontWeight: 500,
+            animation: 'slideIn 0.3s ease', boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
           }}>
             {n.type === 'join' ? '🟢' : '🔴'} {n.message}
           </div>
@@ -109,11 +94,37 @@ export default function App() {
         @keyframes slideIn { from { opacity:0; transform: translateX(20px); } to { opacity:1; transform: translateX(0); } }
         @keyframes fadeUp { from { opacity:0; transform: translateY(16px); } to { opacity:1; transform: translateY(0); } }
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+        * { box-sizing: border-box; margin: 0; padding: 0; border: none; outline: none; }
+        body { font-family: 'Inter', sans-serif; }
+        :root {
+          --bg: #0f172a; --bg2: #1e293b; --bg3: #334155;
+          --border: #334155; --text: #f1f5f9; --text2: #94a3b8; --text3: #64748b;
+          --accent: #7c6aff; --accent2: #a78bfa; --green: #22c55e;
+          --bubble-me: #3730a360; --bubble-other: #1e293b;
+        }
+        button { cursor: pointer; background: none; color: inherit; }
+        input { background: none; color: inherit; }
       `}</style>
 
-      {screen === 'join' ? (
-        <JoinScreen onJoin={handleJoin} />
-      ) : (
+      {screen === 'login' && (
+        <LoginScreen
+          onSignup={() => setScreen('signup')}
+          onSuccess={() => setScreen('join')}
+        />
+      )}
+      {screen === 'signup' && (
+        <SignupScreen
+          onLogin={() => setScreen('login')}
+          onSuccess={() => setScreen('login')}
+        />
+      )}
+      {screen === 'join' && (
+        <JoinScreen
+          onJoin={handleJoin}
+          onLogout={handleLogout}
+        />
+      )}
+      {screen === 'chat' && (
         <ChatScreen
           username={username}
           room={room}
